@@ -12,10 +12,10 @@ pub struct UnityInterfaceGUID
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct IUnityInterface {}
+pub struct IUnityInterface {}
 
 #[repr(C)]
-struct IUnityInterfaces
+pub struct IUnityInterfaces
 {
     pub get_interface: extern "system" fn(guid: UnityInterfaceGUID) -> *mut IUnityInterface,
     pub register_interface: extern "system" fn(guid: UnityInterfaceGUID, ptr: *mut IUnityInterface),
