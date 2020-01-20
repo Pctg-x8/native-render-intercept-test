@@ -1,4 +1,5 @@
 //! Unity Interfaces
+#![allow(non_upper_case_globals)]
 
 use libc::*;
 
@@ -29,8 +30,8 @@ pub const kUnityGfxRendererVulkan: UnityGfxRenderer = 21;
 pub type UnityGfxDeviceEventType = c_int;
 pub const kUnityGfxDeviceEventInitialize: UnityGfxDeviceEventType = 0;
 pub const kUnityGfxDeviceEventShutdown: UnityGfxDeviceEventType = 1;
-pub const kUnityGfxDeviceEventBeforeReset: UnityGfxDeviceEventType = 2;
-pub const kUnityGfxDeviceEventAfterReset: UnityGfxDeviceEventType = 3;
+// pub const kUnityGfxDeviceEventBeforeReset: UnityGfxDeviceEventType = 2;
+// pub const kUnityGfxDeviceEventAfterReset: UnityGfxDeviceEventType = 3;
 
 pub type IUnityGraphicsDeviceEventCallback = extern "system" fn(eventType: UnityGfxDeviceEventType);
 

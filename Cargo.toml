@@ -12,3 +12,4 @@ crate-type = ["cdylib"]
 [dependencies]
 libc = "0.2"
 bedrock = { git = "https://github.com/Pctg-x8/bedrock" }
+lazy_static = "1.0"
