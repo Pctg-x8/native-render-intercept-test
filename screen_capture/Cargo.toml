@@ -1,0 +1,20 @@
+[package]
+name = "screen_capture"
+version = "0.1.0"
+authors = ["S.Percentage <Syn.Tri.Naga@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "RenderingInterceptor"
+crate-type = ["cdylib"]
+
+[dependencies]
+libc = "0.2"
+bedrock = { git = "https://github.com/Pctg-x8/bedrock" }
+lazy_static = "1.0"
+
+[dependencies.winapi]
+version = "0.3"
+features = ["winuser", "libloaderapi"]
