@@ -529,7 +529,6 @@ pub extern "system" fn set_render_buffer(rb: UnityRenderBuffer)
 
 lazy_static!{
     static ref GRAPHICS_DEVICE: RwLock<Option<VkRenderingInterceptor>> = RwLock::new(None);
-    static ref DEBUG_FN: RwLock<Option<DebugFn>> = RwLock::new(None);
 }
 extern "system" fn gfx_event_handler(event_type: UnityGfxDeviceEventType)
 {
