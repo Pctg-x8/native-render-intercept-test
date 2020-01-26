@@ -527,8 +527,6 @@ pub extern "system" fn set_render_buffer(rb: UnityRenderBuffer)
     if let Some(ref mut gd) = *wh { gd.set_render_buffer(rb); }
 }
 
-type DebugFn = extern "system" fn(ostr: *const c_char);
-
 lazy_static!{
     static ref GRAPHICS_DEVICE: RwLock<Option<VkRenderingInterceptor>> = RwLock::new(None);
     static ref DEBUG_FN: RwLock<Option<DebugFn>> = RwLock::new(None);
