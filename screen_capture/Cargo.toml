@@ -12,9 +12,14 @@ crate-type = ["cdylib"]
 
 [dependencies]
 libc = "0.2"
-bedrock = { git = "https://github.com/Pctg-x8/bedrock" }
 lazy_static = "1.0"
+log = "0.4"
+flexi_logger = "0.14"
+
+[dependencies.bedrock]
+git = "https://github.com/Pctg-x8/bedrock"
+features = ["Presentation", "VK_KHR_win32_surface"]
 
 [dependencies.winapi]
 version = "0.3"
-features = ["winuser", "libloaderapi"]
+features = ["winuser", "libloaderapi", "consoleapi"]

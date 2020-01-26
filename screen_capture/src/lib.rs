@@ -1,12 +1,14 @@
 
 use libc::*;
 use lazy_static::*;
+use log::*;
+use bedrock::vk::*;
 use std::cell::Cell;
 use std::sync::RwLock;
 use std::ptr::null_mut;
 use winapi::um::winuser::*;
 use winapi::um::libloaderapi::GetModuleHandleA;
-use winapi::shared::windef::HWND;
+use winapi::shared::windef::{RECT, HWND};
 use winapi::shared::minwindef::{LRESULT, WPARAM, LPARAM, UINT};
 
 mod unity;
@@ -14,12 +16,15 @@ use unity::*;
 
 pub struct ExtRenderTarget
 {
-    handle: HWND
+    handle: HWND,
+    surface: VkSurfaceKHR
 }
 impl ExtRenderTarget
 {
-    pub fn new() -> Self
+    pub fn new(instance: &UnityVulkanInstance) -> Self
     {
+        trace!("Interceptor: ExtRenderTarget::new");
+
         let c = WNDCLASSEXA
         {
             cbSize: std::mem::size_of::<WNDCLASSEXA>() as _,
@@ -36,18 +41,38 @@ impl ExtRenderTarget
             panic!("RegisterClass failed");
         }
 
+        let ws = WS_OVERLAPPED | WS_CAPTION | WS_BORDER | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
+        let mut rect = RECT
+        {
+            left: 0, top: 0, right: 640, bottom: 480
+        };
+        unsafe { AdjustWindowRectEx(&mut rect, ws, false as _, 0); }
+
         let handle = unsafe
         {
-            CreateWindowExA(0, c.lpszClassName, b"RenderingInterceptorTest\0".as_ptr() as _,
-                WS_OVERLAPPED | WS_CAPTION | WS_BORDER | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE,
-                CW_USEDEFAULT, CW_USEDEFAULT, 640, 480,
-                null_mut(), null_mut(), null_mut(), null_mut()
+            CreateWindowExA(0, c.lpszClassName, b"RenderingInterceptorTest\0".as_ptr() as _, ws,
+                CW_USEDEFAULT, CW_USEDEFAULT, rect.right - rect.left, rect.bottom - rect.top,
+                null_mut(), null_mut(), c.hInstance, null_mut()
             )
         };
 
+        let fp_create_surface_khr: PFN_vkCreateWin32SurfaceKHR = unsafe
+        {
+            std::mem::transmute((instance.get_instance_proc_addr)(instance.instance, b"vkCreateWin32SurfaceKHR\0".as_ptr() as *const _).unwrap())
+        };
+        let sinfo = VkWin32SurfaceCreateInfoKHR
+        {
+            hinstance: c.hInstance, hwnd: handle,
+            .. Default::default()
+        };
+        let mut sptr = std::mem::MaybeUninit::uninit();
+        let r = fp_create_surface_khr(instance.instance, &sinfo, std::ptr::null(), sptr.as_mut_ptr());
+        if r != VK_SUCCESS { panic!("vkCreateWin32SurfaceKHR failed"); }
+
         ExtRenderTarget
         {
-            handle
+            handle,
+            surface: unsafe { sptr.assume_init() }
         }
     }
 
@@ -62,21 +87,52 @@ impl ExtRenderTarget
     }
 }
 
+const SCREEN_CAPTURE_EVENT_ID: c_int = 1;
+
 pub struct VkRenderingInterceptor
 {
-    instance: UnityVulkanInstance
+    uinstance: UnityGraphicsVulkanRef,
+    instance: UnityVulkanInstance,
+    ert: ExtRenderTarget,
+    current_rb: UnityRenderBuffer
 }
 impl VkRenderingInterceptor
 {
     pub fn new(ifs: *mut IUnityInterfaces) -> Self
     {
-        let vkif = unsafe { ((*ifs).get_interface)(IUnityGraphicsVulkan::GUID) as *mut IUnityGraphicsVulkan };
-        let instance = unsafe { ((*vkif).instance)() };
+        let uinstance = UnityGraphicsVulkanRef::from_interfaces(ifs).expect("no IUnityGraphicsVulkan");
+        let instance = uinstance.instance();
+        let ert = ExtRenderTarget::new(&instance);
+        
+        // Copyコマンド+Present命令を出すのでoutside renderpass、かつGraphics Queueアクセス可能である必要がある
+        uinstance.configure_event(SCREEN_CAPTURE_EVENT_ID, &UnityVulkanPluginEventConfig
+        {
+            flags: 0,
+            render_pass_precondition: kUnityVulkanRenderPass_EnsureOutside,
+            graphics_queue_access: kUnityVulkanGraphicsQueueAccess_Allow
+        });
 
+        trace!("Interceptor::VkRenderingInterceptor Initialized");
         VkRenderingInterceptor
         {
-            instance
+            uinstance, instance, ert, current_rb: std::ptr::null_mut()
         }
+    }
+    pub fn set_render_buffer(&mut self, rb: UnityRenderBuffer)
+    {
+        self.current_rb = rb;
+    }
+    
+    pub fn handle_event(&self)
+    {
+        let rb_image = self.uinstance.access_render_buffer_texture(
+            self.current_rb,
+            Some(&VkImageSubresource { aspectMask: VK_IMAGE_ASPECT_COLOR_BIT, arrayLayer: 0, mipLevel: 0 }),
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_ACCESS_TRANSFER_READ_BIT,
+            kUnityVulkanResourceAccess_PipelineBarrier
+        ).expect("Unable to get render buffer texture");
     }
 }
 unsafe impl Sync for VkRenderingInterceptor {}
@@ -86,14 +142,30 @@ unsafe impl Send for VkRenderingInterceptor {}
 pub extern "system" fn rendering_event_ptr() -> UnityRenderingEvent { rendering_event }
 extern "system" fn rendering_event(event_id: c_int)
 {
-    // Rendering Event Capture here
+    if event_id == SCREEN_CAPTURE_EVENT_ID
+    {
+        let rh = GRAPHICS_DEVICE.read().unwrap();
+        if let Some(ref gd) = *rh { gd.handle_event(); }
+    }
 }
+
+#[no_mangle]
+pub extern "system" fn set_render_buffer(rb: UnityRenderBuffer)
+{
+    let mut wh = GRAPHICS_DEVICE.write().unwrap();
+    if let Some(ref mut gd) = *wh { gd.set_render_buffer(rb); }
+}
+
+type DebugFn = extern "system" fn(ostr: *const c_char);
 
 lazy_static!{
     static ref GRAPHICS_DEVICE: RwLock<Option<VkRenderingInterceptor>> = RwLock::new(None);
+    static ref DEBUG_FN: RwLock<Option<DebugFn>> = RwLock::new(None);
 }
 extern "system" fn gfx_event_handler(event_type: UnityGfxDeviceEventType)
 {
+    trace!("Interceptor Event: {}", event_type);
+
     if event_type == kUnityGfxDeviceEventInitialize
     {
         // init here
@@ -120,6 +192,9 @@ thread_local!{
 #[no_mangle]
 pub extern "system" fn UnityPluginLoad(ifs: *mut IUnityInterfaces)
 {
+    // flexi_logger::Logger::with_str("trace").log_to_file().start().expect("Logger initialization failed");
+    info!("Initializing Plugin...");
+
     INTERFACES.with(|v| v.set(ifs));
     let gfx_if = unsafe { ((*ifs).get_interface)(IUnityGraphics::GUID) as *mut IUnityGraphics };
     GFX_IF.with(|v| v.set(gfx_if));
@@ -132,5 +207,6 @@ pub extern "system" fn UnityPluginLoad(ifs: *mut IUnityInterfaces)
 #[no_mangle]
 pub extern "system" fn UnityPluginUnload()
 {
+    info!("Uninitializing Plugin...");
     GFX_IF.with(|o| unsafe { ((*o.get()).unregister_device_event_callback)(gfx_event_handler) });
 }

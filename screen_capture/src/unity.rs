@@ -1,5 +1,5 @@
 //! Unity Interfaces
-#![allow(non_upper_case_globals)]
+#![allow(non_upper_case_globals, dead_code)]
 
 use libc::*;
 
@@ -164,7 +164,8 @@ pub struct UnityVulkanSwapchainConfiguration
     pub mode: UnityVulkanSwapchainMode
 }
 
-pub type UnityRenderBuffer = c_void;
+pub enum RenderSurfaceBase {}
+pub type UnityRenderBuffer = *mut RenderSurfaceBase;
 
 #[repr(C)]
 pub struct IUnityGraphicsVulkan
@@ -193,4 +194,63 @@ impl IUnityGraphicsVulkan
     {
         guid_high: 0x95355348d4ef4e11u64, guid_low: 0x9789313dfcffcc87u64
     };
+}
+
+use std::ptr::NonNull;
+
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct UnityGraphicsVulkanRef(NonNull<IUnityGraphicsVulkan>);
+impl UnityGraphicsVulkanRef
+{
+    pub fn from_ptr(p: *mut IUnityGraphicsVulkan) -> Option<Self>
+    {
+        NonNull::new(p).map(UnityGraphicsVulkanRef)
+    }
+    pub fn from_interfaces(ifs: *mut IUnityInterfaces) -> Option<Self>
+    {
+        Self::from_ptr(unsafe { ((*ifs).get_interface)(IUnityGraphicsVulkan::GUID) as *mut IUnityGraphicsVulkan })
+    }
+
+    pub fn configure_event(&self, event_id: c_int, plugin_event_config: &UnityVulkanPluginEventConfig)
+    {
+        unsafe { (self.0.as_ref().configure_event)(event_id, plugin_event_config as _); }
+    }
+    
+    pub fn instance(&self) -> UnityVulkanInstance
+    {
+        unsafe { (self.0.as_ref().instance)() }
+    }
+    pub fn command_recording_state(&self, out_cmd_recording_state: &mut UnityVulkanRecordingState, queue_access: UnityVulkanGraphicsQueueAccess) -> bool
+    {
+        unsafe { (self.0.as_ref().command_recording_state)(out_cmd_recording_state as _, queue_access) }
+    }
+    pub fn access_render_buffer_texture(&self,
+        native_render_buffer: UnityRenderBuffer,
+        sub_resource: Option<&VkImageSubresource>,
+        layout: VkImageLayout,
+        pipeline_stage_flags: VkPipelineStageFlags,
+        access_flags: VkAccessFlags,
+        access_mode: UnityVulkanResourceAccessMode) -> Option<UnityVulkanImage>
+    {
+        let mut oi = std::mem::MaybeUninit::uninit();
+        let result = unsafe
+        {
+            (self.0.as_ref().access_render_buffer_texture)(native_render_buffer,
+                sub_resource.map(|p| p as _).unwrap_or(std::ptr::null()), layout,
+                pipeline_stage_flags, access_flags, access_mode, oi.as_mut_ptr())
+        };
+        if result { Some(unsafe { oi.assume_init() }) } else { None }
+    }
+
+    // RenderPass Controls //
+
+    pub fn ensure_outside_render_pass(&self)
+    {
+        unsafe { (self.0.as_ref().ensure_outside_render_pass)(); }
+    }
+    pub fn ensure_inside_render_pass(&self)
+    {
+        unsafe { (self.0.as_ref().ensure_inside_render_pass)(); }
+    }
 }
