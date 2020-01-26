@@ -154,9 +154,10 @@ impl ExtRenderTarget
         }
 
         let ws = WS_OVERLAPPED | WS_CAPTION | WS_BORDER | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
+        let w = 1280;
         let mut rect = RECT
         {
-            left: 0, top: 0, right: 640, bottom: 480
+            left: 0, top: 0, right: w, bottom: w * 9 / 16
         };
         unsafe { AdjustWindowRectEx(&mut rect, ws, false as _, 0); }
 
